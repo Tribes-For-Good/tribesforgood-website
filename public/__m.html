@@ -1,0 +1,25 @@
+<style>html,body{margin:0}iframe{width:390px;height:760px;border:0}</style>
+<iframe id="f" src="/"></iframe>
+<script>
+document.getElementById('f').onload=function(){var s=this;setTimeout(function(){
+ var d=s.contentDocument,w=s.contentWindow,o=[],beacons=[],fetches=[];
+ var ob=w.navigator.sendBeacon && w.navigator.sendBeacon.bind(w.navigator);
+ if(ob) w.navigator.sendBeacon=function(u,b){ if(String(u).indexOf('script.google')>-1) beacons.push(1); return ob(u,b); };
+ var of=w.fetch; w.fetch=function(u,i){ if(String(u).indexOf('script.google')>-1) fetches.push(1); return of.apply(this,arguments); };
+ var setVal=function(el,v){var st=Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype,'value').set;st.call(el,v);el.dispatchEvent(new w.Event('input',{bubbles:true}));};
+ [].slice.call(d.querySelectorAll('.sticky-cta button')).filter(x=>/Brochure/i.test(x.textContent))[0].click();
+ setTimeout(function(){
+  var m=[].slice.call(d.querySelectorAll('input')).slice(-3);
+  setVal(m[0],'mobilefix@example.com'); setVal(m[1],'9222222222'); setVal(m[2],'MOBILE FIX TEST - delete me');
+  setTimeout(function(){
+   [].slice.call(d.querySelectorAll('button')).filter(x=>/^\s*Download\s*$/i.test(x.textContent))[0].click();
+   setTimeout(function(){
+     o.push('sendBeaconUsed='+beacons.length);
+     o.push('fetchFallback='+fetches.length);
+     o.push('modalClosed='+(d.querySelectorAll('input').length===1));
+     document.documentElement.setAttribute('data-m',o.join(' | '));
+   },5000);
+  },900);
+ },1500);
+},3500);};
+</script>

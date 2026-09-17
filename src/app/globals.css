@@ -1,0 +1,37 @@
+@tailwind base;
+
+@tailwind components;
+@tailwind utilities;
+
+/* .use-theme-bg{
+    background-color: white ;
+}
+
+.embed-page-inner > a{
+    visibility: hidden !important;
+}
+
+.publication-logo{
+    visibility: hidden !important;
+}
+.publication-name{
+    visibility: hidden !important;
+} */
+
+.scroll-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for Firefox */
+.scroll-hidden {
+  scrollbar-width: none;
+}
+
+/* Ensure the scroll feature still works */
+.scroll-hidden {
+  overflow: auto;
+}
+
+html {
+  scroll-behavior: smooth;
+}
