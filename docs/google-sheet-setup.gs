@@ -44,7 +44,7 @@ var CONFIG = {
   ccEmail: 'khwahish@tribesforgood.com',
   signName: 'Khwahish Vig',
   signTitle: 'Project Associate, Strategy, Partnerships and New Product Development',
-  signPhone: '91-9930926119',
+  signPhone: '91-9041075615',
 
   // Leave blank to switch off the internal heads-up email.
   notifyTeam: '',
