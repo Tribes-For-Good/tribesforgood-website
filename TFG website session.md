@@ -188,3 +188,15 @@ New route `src/app/dubai/page.jsx`, same section stack as the home page, verifie
 3. Not deployed — needs the same `vercel deploy --prod --yes` step (via `!` prefix) once the client signs off on content.
 
 The email/WhatsApp/Facebook-leads work from the previous session (see above) is still fully parked in the state described, unrelated to this session's Dubai work.
+
+## Small content updates, 2026-09-22
+
+Two quick, low-risk changes, both fully shipped (committed, pushed to GitHub, deployed to production):
+
+- **Email signature phone number**: `docs/google-sheet-setup.gs` `CONFIG.signPhone` changed from `91-9930926119` to `91-9041075615` (Khwahish's number in the brochure/contact-reply email signature). Pasted into the Apps Script editor and redeployed as a new Web App version that same session, so this is live for real leads, not just Head/manual-test paths.
+- **Floating WhatsApp button** (`src/components/WhatsAppButton.jsx`, sitewide via `layout.js`): number changed to the same `+91 9041075615`, prefilled message changed to "Hi! Can I get details about Tribes for GOOD winter cohort?" (client's original wording had a typo, "Tribes Gor GOOD" — corrected to "Tribes for GOOD," flagged to client at the time, not objected to). **Also fixed a latent bug while touching this**: the old link (`wa.me/9920257626?...`) was missing the country code entirely, which `wa.me` needs for reliable behavior — the new link correctly uses `919041075615`. Verified live on production by fetching the real page HTML and confirming the exact href.
+- **Not touched, flagged but left alone**: `src/app/contact/page.jsx` still displays `+91 9920257626` as plain text under "Phone" on the Contact Us page — this is a separate, non-WhatsApp, non-linked display of the old number. Might be a different, intentionally-kept number (e.g. a general office line) rather than a stale duplicate — confirm with client before changing it, don't assume it should match the WhatsApp button.
+
+**GitHub repo status**: `github.com/Tribes-For-Good/tribesforgood-website` (set up 2026-09-18, see below) now has 4 commits on `main`, all pushed — initial import, the ownership-correction handoff-doc update, the phone number change, and the WhatsApp button change. Push auth works via a Classic PAT embedded directly in this machine's `.git/config` remote URL (client's explicit choice to leave it there rather than re-enter it every push — see the git-setup notes below for why: this environment has no TTY, so normal interactive git auth cannot work here at all).
+
+**Vercel deploy note**: hit "Not authorized" on `npx vercel deploy` (agent-run, no `--prod` even) this session, where earlier sessions only saw that error specifically on `--prod`. Client re-ran the exact same command themselves via `!` prefix and it worked fine — so this remains a per-invocation agent restriction, not an account/auth problem. Don't spend time debugging Vercel auth state if this recurs; just ask the client to run the deploy command themselves.
