@@ -27,6 +27,28 @@
  *      run "sendTestWhatsApp" once to confirm it actually works before
  *      relying on it for real leads. See the WHATSAPP section below for
  *      details.
+ *   6. For the FAQ/story/theme follow-up sequence (2/4/7 days after a
+ *      lead): CONFIG.faqTemplate ("OutcomesAndFAQ") and studentStoryTemplate
+ *      ("chitrastudentstory") are already created and set below.
+ *      themeDetailsTemplate is deliberately blank — that step is on hold
+ *      until a theme-details template is created and Meta-approved in
+ *      Interakt; runDripSequence() skips a step with no template name
+ *      configured rather than failing it permanently, so once
+ *      CONFIG.themeDetailsTemplate is filled in, leads already past day 7
+ *      pick it up on the next run rather than having missed it for good.
+ *      Same skip-not-fail treatment applies to studentStoryImageUrl —
+ *      chitrastudentstory requires a header image, so that step is also on
+ *      hold until CONFIG.studentStoryImageUrl is filled in with a real,
+ *      hosted image. OutcomesAndFAQ needs one body variable (the lead's
+ *      first name); the brochure form never collects a name, so that case
+ *      falls back to CONFIG.genericGreetingName — see DRIP_SEQUENCE's
+ *      needsName/needsImage flags below for exactly which steps need what.
+ *      Run "sendTestFaqWhatsApp" / "sendTestStoryWhatsApp" once each to
+ *      confirm before relying on them (sendTestThemeWhatsApp will just say
+ *      it's not set up yet, that's expected), then run
+ *      "setupDripSequenceTrigger" once to start the recurring check.
+ *      Reuses the same
+ *      INTERAKT_API_KEY, no new Script Property needed.
  *
  * TO EDIT THE EMAIL: change the text in the CONFIG block below. Nothing else
  * needs touching, and no developer is required.
@@ -65,6 +87,43 @@ var CONFIG = {
   // brand image even though a placeholder was used at submission time.
   discoveryCallTemplate: 'discovery_call_request',
   discoveryCallImageUrl: 'https://www.tribesforgood.com/assets/assets/og/home.png',
+
+  // Follow-up WhatsApp sequence, sent after the discovery-call ask above:
+  // an FAQ message 2 days after the lead, a student success story 2 days
+  // after that (day 4 total), programme/theme details on day 7 (its own
+  // fixed offset from the lead, not chained off the story anymore — see
+  // DRIP_SEQUENCE below). Image URLs are optional for a template with no
+  // header image; leave '' — but note studentStoryImageUrl below is NOT
+  // optional, chitrastudentstory requires one.
+  faqTemplate: 'OutcomesAndFAQ',
+  faqImageUrl: '',
+  // Deliberately blank — not created in Interakt yet. Leaving this '' is
+  // safe: runDripSequence() skips a step with no template name configured
+  // rather than attempting it and recording a permanent failure, so once a
+  // real template name goes here, leads already past day 7 pick it up on
+  // the very next trigger run instead of having been silently locked out.
+  themeDetailsTemplate: '',
+  themeDetailsImageUrl: '',
+  studentStoryTemplate: 'chitrastudentstory',
+  // Required, not optional — chitrastudentstory has an image header
+  // component, and Interakt rejects a send with no headerValues the same
+  // way it rejected a missing body variable (see needsImage in
+  // DRIP_SEQUENCE below — if this ever goes blank again, that flag is what
+  // keeps the step skipping safely instead of failing permanently).
+  // Chitrita Nair's Johns Hopkins story slide, compressed from a 1.3MB
+  // 1920x1080 PNG to this 1200x675 JPEG (~240KB), same convention as
+  // financeBannerUrl/fundHerRiseUrl above. Not yet live on the site — this
+  // URL only resolves after the next `vercel deploy --prod`.
+  studentStoryImageUrl: 'https://www.tribesforgood.com/assets/home-v2/email-chitrita-story.jpg',
+  // OutcomesAndFAQ needs exactly one body variable (the lead's first name —
+  // confirmed by Interakt's own 400 error, "expected number of values are
+  // 1"). Facebook/Instagram leads have a real name (full_name column);
+  // website brochure leads never do, the form has no name field at all, so
+  // this is the greeting used whenever no real name is known. See
+  // DRIP_SEQUENCE's needsName flag below for which steps this applies to —
+  // don't assume it's all of them, discovery_call_request has zero
+  // variables and already works fine as-is.
+  genericGreetingName: 'there',
 
   // Programme facts, kept in one place so the email can never drift from
   // the website. Update these when a new season opens.
@@ -105,7 +164,8 @@ var BRAND = { navy: '#0F1C4D', teal: '#65D5E5', yellow: '#FFE169', grey: '#66718
 var TABS = {
   brochure: {
     name: 'Brochure Leads',
-    headers: ['Timestamp', 'Email', 'Phone', 'School', 'Source', 'Page', 'Emailed', "WhatsApp'd"],
+    headers: ['Timestamp', 'Email', 'Phone', 'School', 'Source', 'Page', 'Emailed', "WhatsApp'd",
+               'FAQ Sent', 'Theme Sent', 'Story Sent'],
   },
   contact: {
     name: 'Contact Messages',
@@ -456,16 +516,51 @@ function sendTestEmail() {
 }
 
 // -------------------------------------------------------------- WHATSAPP ----
-// Sent via Interakt (interakt.ai). Only one template exists: discovery_call
-// _request (CONFIG.discoveryCallTemplate), already approved by Meta, name
-// fixed in CONFIG since it's not expected to change. Needs one Script
-// Property set once, under Project Settings > Script Properties in the
-// Apps Script editor — never hardcode the API key here:
+// Sent via Interakt (interakt.ai). Templates: discovery_call_request
+// (CONFIG.discoveryCallTemplate, sent immediately, already approved by
+// Meta) plus the 3-step FAQ/theme/story follow-up sequence below
+// (DRIP_SEQUENCE), each needing its own Meta-approved template — see the
+// CONFIG comments above. Needs one Script Property set once, under Project
+// Settings > Script Properties in the Apps Script editor — never hardcode
+// the API key here:
 //   INTERAKT_API_KEY     the key from Interakt's Settings > API Key
-//   TEST_WHATSAPP_PHONE  your own number (10 digits), for sendTestWhatsApp
+//   TEST_WHATSAPP_PHONE  your own number (10 digits), for the sendTest*
+//                        functions below
 //
 // Until INTERAKT_API_KEY is set, every send quietly no-ops (logged, not
 // thrown) so leads keep being emailed and recorded normally either way.
+
+// Cumulative days since a lead's own capture date, not since this feature
+// went live — a lead already 9 days old the first time this runs gets both
+// the FAQ and theme steps sent back-to-back in the same pass, then
+// continues normally. Deliberately different from every other tracking
+// column in this file (which skip their pre-existing backlog on first run)
+// — confirmed as the wanted behaviour for this sequence specifically.
+// `days` is each step's own offset from the lead's capture date, not
+// chained off the previous step — story (day 4) deliberately fires before
+// theme (day 7) here, that's intentional, not a typo.
+// needsName: true means the template has one body variable (the lead's
+// first name) and will fail with a real Interakt 400 if sent with none —
+// confirmed for OutcomesAndFAQ specifically, not assumed for the others.
+// needsImage: true means the template has an image header component and
+// will similarly fail with no headerValues — confirmed for
+// chitrastudentstory. Neither flag is assumed for theme, since that
+// template doesn't exist yet; confirm the same way (try it, read the
+// error) once it does, rather than guessing.
+// Array order must stay faq/theme/story — it's matched positionally
+// against each caller's `cols` array (processBrochureDrip's [8, 9, 10],
+// processFacebookDrip's [faqCol, themeCol, storyCol]), both of which are
+// FAQ/Theme/Story column order on their respective sheets. Reordering this
+// array without also reordering both `cols` arrays would silently write
+// each step's status into the wrong column.
+var DRIP_SEQUENCE = [
+  { key: 'faq', days: 2, templateKey: 'faqTemplate', imageKey: 'faqImageUrl', needsName: true, needsImage: false },
+  { key: 'theme', days: 7, templateKey: 'themeDetailsTemplate', imageKey: 'themeDetailsImageUrl', needsName: false, needsImage: false },
+  { key: 'story', days: 4, templateKey: 'studentStoryTemplate', imageKey: 'studentStoryImageUrl', needsName: false, needsImage: true },
+];
+
+var MS_PER_DAY = 24 * 60 * 60 * 1000;
+var IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
 /**
  * Strips everything but digits and keeps the last 10, since Indian mobile
@@ -504,15 +599,16 @@ function splitCountryCode(raw) {
 }
 
 /**
- * Sends the discovery_call_request template. Takes an already-resolved
- * countryCode/phoneNumber pair rather than a raw string, since the two
- * callers (the website form vs Meta's Lead Ads sheet) hand phone numbers
- * over in different shapes and each knows how to parse its own.
+ * Sends any approved WhatsApp template with no body variables. Takes an
+ * already-resolved countryCode/phoneNumber pair rather than a raw string,
+ * since callers (the website form vs Meta's Lead Ads sheet) hand phone
+ * numbers over in different shapes and each knows how to parse its own.
+ * imageUrl is optional — pass '' for a template with no header image.
  */
-function sendDiscoveryCallWhatsApp(countryCode, phoneNumber) {
+function sendWhatsAppTemplate(templateName, imageUrl, countryCode, phoneNumber, bodyValues) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('INTERAKT_API_KEY');
   if (!apiKey) {
-    Logger.log('sendDiscoveryCallWhatsApp: skipped, INTERAKT_API_KEY not set yet.');
+    Logger.log('sendWhatsAppTemplate(' + templateName + '): skipped, INTERAKT_API_KEY not set yet.');
     return 'skipped, INTERAKT_API_KEY not set yet.';
   }
 
@@ -525,6 +621,11 @@ function sendDiscoveryCallWhatsApp(countryCode, phoneNumber) {
   // this sends only fullPhoneNumber and drops countryCode/phoneNumber
   // entirely, rather than trying to guess which single field to keep.
   var countryDigits = String(countryCode || '').replace(/\D/g, '');
+  var template = { name: templateName, languageCode: 'en', bodyValues: bodyValues || [] };
+  // Overrides whatever sample image the template was approved with — see
+  // the discoveryCallImageUrl CONFIG comment above.
+  if (imageUrl) template.headerValues = [imageUrl];
+
   var res = UrlFetchApp.fetch('https://api.interakt.ai/v1/public/message/', {
     method: 'post',
     contentType: 'application/json',
@@ -532,14 +633,7 @@ function sendDiscoveryCallWhatsApp(countryCode, phoneNumber) {
     payload: JSON.stringify({
       fullPhoneNumber: countryDigits + phoneNumber,
       type: 'Template',
-      template: {
-        name: CONFIG.discoveryCallTemplate,
-        languageCode: 'en',
-        // Overrides whatever sample image the template was approved with —
-        // see the CONFIG comment above.
-        headerValues: [CONFIG.discoveryCallImageUrl],
-        bodyValues: [],
-      },
+      template: template,
     }),
     muteHttpExceptions: true,
   });
@@ -553,7 +647,7 @@ function sendDiscoveryCallWhatsApp(countryCode, phoneNumber) {
   // real send as "sent" when Interakt is actually reporting failure in the
   // body. Confirmed missing this once already: real leads' WhatsApp sends
   // showed "sent" in the Sheet with nothing ever arriving.
-  Logger.log('sendDiscoveryCallWhatsApp: Interakt ' + diagnostic);
+  Logger.log('sendWhatsAppTemplate(' + templateName + '): Interakt ' + diagnostic);
 
   if (res.getResponseCode() >= 300) {
     throw new Error(diagnostic);
@@ -570,6 +664,12 @@ function sendDiscoveryCallWhatsApp(countryCode, phoneNumber) {
   }
 
   return diagnostic;
+}
+
+/** Sends the discovery_call_request template specifically — see CONFIG. */
+function sendDiscoveryCallWhatsApp(countryCode, phoneNumber) {
+  return sendWhatsAppTemplate(
+    CONFIG.discoveryCallTemplate, CONFIG.discoveryCallImageUrl, countryCode, phoneNumber);
 }
 
 /**
@@ -595,6 +695,35 @@ function sendTestWhatsApp() {
     return writeDebugResult('Send to ' + phone + ' failed: ' + err);
   }
 }
+
+/**
+ * Same idea as sendTestWhatsApp, one per drip step, so each new template
+ * can be confirmed working on its own before the trigger relies on it for
+ * real leads. Run each once after setting its CONFIG template name.
+ */
+function sendTestDripStep(step) {
+  var templateName = CONFIG[step.templateKey];
+  if (!templateName) return writeDebugResult('CONFIG.' + step.templateKey + ' is not set yet — nothing to test.');
+  if (step.needsImage && !CONFIG[step.imageKey]) {
+    return writeDebugResult('CONFIG.' + step.imageKey + ' is not set yet — this template needs a header image.');
+  }
+  var phone = PropertiesService.getScriptProperties().getProperty('TEST_WHATSAPP_PHONE');
+  if (!phone) return writeDebugResult('Set the TEST_WHATSAPP_PHONE script property first.');
+  var normalizedPhone = normalizeIndianPhone(phone);
+  if (!normalizedPhone) return writeDebugResult("TEST_WHATSAPP_PHONE doesn't look like a usable number.");
+  var bodyValues = step.needsName ? [CONFIG.genericGreetingName] : [];
+  try {
+    var result = sendWhatsAppTemplate(
+      templateName, CONFIG[step.imageKey], '+91', normalizedPhone, bodyValues);
+    return writeDebugResult('Sent "' + step.key + '" step to ' + phone + '. Interakt response: ' + result);
+  } catch (err) {
+    return writeDebugResult('Send "' + step.key + '" step to ' + phone + ' failed: ' + err);
+  }
+}
+
+function sendTestFaqWhatsApp() { return sendTestDripStep(DRIP_SEQUENCE[0]); }
+function sendTestThemeWhatsApp() { return sendTestDripStep(DRIP_SEQUENCE[1]); }
+function sendTestStoryWhatsApp() { return sendTestDripStep(DRIP_SEQUENCE[2]); }
 
 function writeDebugResult(message) {
   var sheet = getSheet({ name: 'Debug', headers: ['Timestamp', 'Result'] });
@@ -636,11 +765,23 @@ function processFacebookLeads() {
   var headers = data[0].map(function (h) { return String(h).trim().toLowerCase(); });
   var emailCol = headers.indexOf('email');
   var phoneCol = headers.indexOf('phone_number');
-  var dateCol = headers.indexOf('date');
-  var campaignCol = headers.indexOf('campaign name');
+  // Confirmed against the real headers on this sheet 2026-09-29 — 'date'
+  // and 'campaign name' never actually existed (the real names are
+  // 'created_time' and 'campaign_name'), so dateCol/campaignCol have been
+  // silently -1 this whole time. Harmless here (both are read with a
+  // `=== -1 ? '' : ...` fallback below), but it meant the Instagram Leads
+  // mirror tab's Timestamp and Campaign columns have likely been blank for
+  // every row ever copied there.
+  var dateCol = headers.indexOf('created_time');
+  var campaignCol = headers.indexOf('campaign_name');
   var nameCol = headers.indexOf('full_name');
   var gradeCol = headers.indexOf("what_is_your_child's_grade_level?");
   var schoolCol = headers.indexOf("your_child's_school_(name)_?");
+  // 'quality lead' doesn't appear in the real headers either — the closest
+  // candidate is 'lead_status', but that may be a different concept (lead
+  // pipeline stage vs. a quality score), so this is left as-is rather than
+  // guessed. Flagged to the client; fix once confirmed which column (if
+  // any) is the real equivalent.
   var qualityCol = headers.indexOf('quality lead');
   if (emailCol === -1) {
     Logger.log('processFacebookLeads: no "email" column found, aborting.');
@@ -769,6 +910,214 @@ function setupFacebookLeadsTrigger() {
   });
   ScriptApp.newTrigger('processFacebookLeads').timeBased().everyMinutes(15).create();
   return 'Facebook leads will be checked and emailed every 15 minutes.';
+}
+
+// ------------------------------------------------------------ DRIP SEQUENCE ----
+
+/**
+ * Parses the exact 'yyyy-MM-dd HH:mm:ss' string doPost() writes (via
+ * Utilities.formatDate(..., 'Asia/Kolkata', ...)) back into the correct
+ * absolute instant, regardless of this script's own runtime timezone
+ * setting — reconstructs the UTC instant directly from the IST wall-clock
+ * digits rather than trusting new Date(string) to guess the right zone.
+ * Returns null, not a guess, for anything that doesn't match.
+ */
+function parseIstStamp(stamp) {
+  var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(String(stamp || '').trim());
+  if (!m) return null;
+  var utcMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) - IST_OFFSET_MS;
+  return new Date(utcMs);
+}
+
+/**
+ * Meta's Lead Ads sheet may hand back its "date" column as an actual Date
+ * object or as a string, depending on how the cell is formatted — accepts
+ * either, returns null (skip, don't guess) for anything unparseable.
+ */
+function toDate(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (!value) return null;
+  var d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Finds (or creates) a tracking column by header name, same pattern used
+ * inline in processFacebookLeads() for TFG Emailed/WhatsApp'd/Logged, moved
+ * here as a shared helper since the drip sequence needs 3 more.
+ */
+function ensureTrackingColumn(sheet, headers, key, label) {
+  var col = headers.indexOf(key);
+  if (col === -1) {
+    col = headers.length;
+    headers.push(key);
+    sheet.getRange(1, col + 1).setValue(label);
+  }
+  return col;
+}
+
+/**
+ * Sends whichever DRIP_SEQUENCE steps are now due and not yet recorded for
+ * one row, writing each step's own status into its own column — same
+ * independent-columns rule as every other tracking column in this file, so
+ * a failure on one step never blocks or gets confused with another. `cols`
+ * gives the sheet column (0-indexed) for each step in DRIP_SEQUENCE order.
+ * A lead already past more than one threshold gets every due step sent in
+ * this same pass (see the DRIP_SEQUENCE comment above for why that's
+ * intentional here).
+ */
+function runDripSequence(sheet, rowNumber, existingValues, cols, daysElapsed, countryCode, phoneNumber, firstName) {
+  for (var i = 0; i < DRIP_SEQUENCE.length; i++) {
+    var step = DRIP_SEQUENCE[i];
+    var col = cols[i];
+    if (existingValues[col]) continue; // already sent, or already failed — never retried
+    if (daysElapsed < step.days) continue;
+    var templateName = CONFIG[step.templateKey];
+    // A step with no template name configured yet (e.g. theme details,
+    // pending Interakt setup) is skipped without writing anything, not
+    // recorded as failed — a real API error would be permanent (see the
+    // line above), but "not built yet" must not be. Leaves the column
+    // blank so this is retried on every future run until it's configured.
+    if (!templateName) continue;
+    // Same treatment for a step that needs a header image but doesn't have
+    // one configured yet (e.g. studentStoryTemplate, pending a real
+    // image) — skip without writing anything, don't record a permanent
+    // failure for "not ready yet".
+    if (step.needsImage && !CONFIG[step.imageKey]) continue;
+    // Only build a name value for a step that actually needs one — a step
+    // with needsName: false must keep bodyValues empty, sending a value a
+    // template doesn't expect is its own Interakt error, same as sending
+    // none when one is expected.
+    var bodyValues = step.needsName ? [firstName || CONFIG.genericGreetingName] : [];
+    var status;
+    try {
+      sendWhatsAppTemplate(templateName, CONFIG[step.imageKey], countryCode, phoneNumber, bodyValues);
+      status = 'sent';
+    } catch (err) {
+      status = 'failed: ' + err;
+    }
+    sheet.getRange(rowNumber, col + 1).setValue(status);
+    existingValues[col] = status;
+  }
+}
+
+/**
+ * Drip sequence for website brochure-form leads. Same Dubai/phone
+ * exclusions as the immediate discovery-call send in doPost() — re-derived
+ * fresh from each row's own Phone/Page columns rather than trusting the
+ * old WhatsApp'd column's text, since rows written before that column
+ * existed would otherwise be skipped by a blank status that doesn't
+ * actually mean "excluded".
+ */
+function processBrochureDrip() {
+  var sheet = getSheet(TABS.brochure);
+  var data = sheet.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    var phone = data[r][2];
+    var page = data[r][5];
+    if (!phone) continue;
+    if (String(page || '').indexOf('/dubai') === 0) continue;
+    var normalizedPhone = normalizeIndianPhone(phone);
+    if (!normalizedPhone) continue;
+    var leadDate = parseIstStamp(data[r][0]);
+    if (!leadDate) continue;
+    var daysElapsed = Math.floor((Date.now() - leadDate.getTime()) / MS_PER_DAY);
+    // The brochure form never collects a name (only email/phone/school) —
+    // pass null, runDripSequence() falls back to CONFIG.genericGreetingName
+    // for any step that actually needs one.
+    runDripSequence(sheet, r + 1, data[r], [8, 9, 10], daysElapsed, '+91', normalizedPhone, null);
+  }
+}
+
+/**
+ * Same sequence for Facebook/Instagram leads, reading the same Meta sheet
+ * processFacebookLeads() already reads and adding its own 3 tracked
+ * columns (TFG FAQ/Theme/Story Sent). Deliberately excludes any row whose
+ * TFG WhatsApp'd status is blank or "skipped (pre-existing)" — that status
+ * means the row is part of the Nov 2025 archive processFacebookLeads()
+ * already deliberately never contacts, or predates WhatsApp being wired up
+ * at all. This sequence extends a conversation that was actually started,
+ * it does not start a new one with leads that were intentionally left
+ * alone. (Does not touch the "Instagram Leads" mirror tab — that tab only
+ * ever snapshots a row once, at first sighting, and has no mechanism to
+ * revisit a row days later, so drip status is visible on the Meta sheet
+ * itself, not mirrored.)
+ */
+function processFacebookDrip() {
+  var sheet = SpreadsheetApp.openById(CONFIG.metaLeadsSheetId).getSheetByName(CONFIG.metaLeadsTabName);
+  if (!sheet) {
+    Logger.log('processFacebookDrip: tab "' + CONFIG.metaLeadsTabName + '" not found, aborting.');
+    return;
+  }
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return;
+
+  var headers = data[0].map(function (h) { return String(h).trim().toLowerCase(); });
+  var phoneCol = headers.indexOf('phone_number');
+  // 'created_time' — confirmed against the real headers on this sheet
+  // 2026-09-29 (via a live "missing columns" error), 'date' never existed.
+  var dateCol = headers.indexOf('created_time');
+  var nameCol = headers.indexOf('full_name');
+  var waTrackCol = headers.indexOf("tfg whatsapp'd");
+  if (phoneCol === -1 || dateCol === -1 || waTrackCol === -1) {
+    // Name exactly which column is missing and what's actually there —
+    // "required columns not found" told us nothing actionable last time
+    // this happened. Written to the Debug tab too, not just Logger.log,
+    // since the Executions panel has proven unreliable all through this
+    // project (see the WhatsApp payload bug notes).
+    var missing = [];
+    if (phoneCol === -1) missing.push('"phone_number"');
+    if (dateCol === -1) missing.push('"date"');
+    if (waTrackCol === -1) missing.push('"TFG WhatsApp\'d" (only exists after processFacebookLeads has run at least once)');
+    var missingMsg = 'processFacebookDrip: missing ' + missing.join(', ') +
+      '. Actual headers on "' + CONFIG.metaLeadsTabName + '": [' + headers.join(', ') + ']';
+    Logger.log(missingMsg);
+    writeDebugResult(missingMsg);
+    return;
+  }
+
+  var faqCol = ensureTrackingColumn(sheet, headers, 'tfg faq sent', 'TFG FAQ Sent');
+  var themeCol = ensureTrackingColumn(sheet, headers, 'tfg theme sent', 'TFG Theme Sent');
+  var storyCol = ensureTrackingColumn(sheet, headers, 'tfg story sent', 'TFG Story Sent');
+
+  for (var r = 1; r < data.length; r++) {
+    var waStatus = data[r][waTrackCol];
+    if (!waStatus || waStatus === 'skipped (pre-existing)') continue;
+
+    var phone = String(data[r][phoneCol] || '').trim();
+    var parsed = phone ? splitCountryCode(phone) : null;
+    if (!parsed) continue;
+
+    var leadDate = toDate(data[r][dateCol]);
+    if (!leadDate) continue;
+
+    var fullName = nameCol === -1 ? '' : String(data[r][nameCol] || '').trim();
+    var firstName = fullName ? fullName.split(/\s+/)[0] : '';
+
+    var daysElapsed = Math.floor((Date.now() - leadDate.getTime()) / MS_PER_DAY);
+    runDripSequence(sheet, r + 1, data[r], [faqCol, themeCol, storyCol],
+      daysElapsed, parsed.countryCode, parsed.phoneNumber, firstName);
+  }
+}
+
+function processDripSequence() {
+  processBrochureDrip();
+  processFacebookDrip();
+}
+
+/**
+ * Run this once from the editor. Sets up the recurring check for the FAQ/
+ * theme/story follow-up sequence. Every 6 hours, not every 15 minutes like
+ * the Facebook lead check — day-scale delays don't need minute-level
+ * precision, and this scans every row in both sheets on every run. Safe to
+ * re-run, clears any existing trigger for this function first.
+ */
+function setupDripSequenceTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'processDripSequence') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('processDripSequence').timeBased().everyHours(6).create();
+  return 'FAQ/theme/story follow-ups will be checked every 6 hours.';
 }
 
 function doGet() {
