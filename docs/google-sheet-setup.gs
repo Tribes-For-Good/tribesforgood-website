@@ -915,14 +915,20 @@ function setupFacebookLeadsTrigger() {
 // ------------------------------------------------------------ DRIP SEQUENCE ----
 
 /**
- * Parses the exact 'yyyy-MM-dd HH:mm:ss' string doPost() writes (via
- * Utilities.formatDate(..., 'Asia/Kolkata', ...)) back into the correct
- * absolute instant, regardless of this script's own runtime timezone
- * setting — reconstructs the UTC instant directly from the IST wall-clock
- * digits rather than trusting new Date(string) to guess the right zone.
- * Returns null, not a guess, for anything that doesn't match.
+ * doPost() writes the Timestamp column as the exact 'yyyy-MM-dd HH:mm:ss'
+ * string from Utilities.formatDate(..., 'Asia/Kolkata', ...), but Sheets
+ * auto-converts a string that looks like a date into a real Date-typed
+ * cell on write — confirmed 2026-10-02, getDataRange().getValues() was
+ * actually handing back Date objects here, not strings, so the regex below
+ * silently matched nothing and every row got skipped with no error. A Date
+ * object is trusted as-is (the sheet's own timezone setting produced it);
+ * only a genuine leftover string (older rows, or a format change) falls
+ * through to the manual IST wall-clock reconstruction, which exists
+ * precisely because a bare string can't be trusted to parse in the right
+ * zone otherwise. Returns null, not a guess, for anything that fits neither.
  */
 function parseIstStamp(stamp) {
+  if (stamp instanceof Date) return isNaN(stamp.getTime()) ? null : stamp;
   var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(String(stamp || '').trim());
   if (!m) return null;
   var utcMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) - IST_OFFSET_MS;
