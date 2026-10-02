@@ -1,6 +1,6 @@
 const AnnounceBar = () => (
   <div className="announce">
-    Early Deadline for winter cohort, 24th September. <a href="#cohorts">Apply Here</a>!
+    Early Deadline for winter cohort, 11th October. <a href="#cohorts">Apply Here</a>!
   </div>
 );
 
