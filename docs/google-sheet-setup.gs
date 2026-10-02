@@ -28,7 +28,7 @@
  *      relying on it for real leads. See the WHATSAPP section below for
  *      details.
  *   6. For the FAQ/story/theme follow-up sequence (2/4/7 days after a
- *      lead): CONFIG.faqTemplate ("OutcomesAndFAQ") and studentStoryTemplate
+ *      lead): CONFIG.faqTemplate ("outcomesandfaq") and studentStoryTemplate
  *      ("chitrastudentstory") are already created and set below.
  *      themeDetailsTemplate is deliberately blank — that step is on hold
  *      until a theme-details template is created and Meta-approved in
@@ -95,7 +95,12 @@ var CONFIG = {
   // DRIP_SEQUENCE below). Image URLs are optional for a template with no
   // header image; leave '' — but note studentStoryImageUrl below is NOT
   // optional, chitrastudentstory requires one.
-  faqTemplate: 'OutcomesAndFAQ',
+  // Confirmed via Interakt dashboard 2026-10-02 — template names are
+  // case-sensitive there, and the approved name is all-lowercase, not the
+  // "OutcomesAndFAQ" casing originally assumed. That mismatch was the
+  // actual cause of every FAQ send failing with Interakt's "No approved
+  // template found" error.
+  faqTemplate: 'outcomesandfaq',
   faqImageUrl: '',
   // Deliberately blank — not created in Interakt yet. Leaving this '' is
   // safe: runDripSequence() skips a step with no template name configured
